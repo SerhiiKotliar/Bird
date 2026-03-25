@@ -6,7 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="d478e9db-375c-47bf-9f83-cb6a2e94c3d3" name="Changes" comment="bird1">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/datas/divide_source.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/divide_source.ipynb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/divide_source.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/divide_source.ipynb" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -30,12 +30,12 @@
     &quot;assignee&quot;: &quot;SerhiiKotliar&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;git@github.com:SerhiiKotliar/Bird.git&quot;,
-    &quot;accountId&quot;: &quot;70bd87dc-dca3-442c-9a0f-184e2ceb687a&quot;
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "git@github.com:SerhiiKotliar/Bird.git",
+    "accountId": "a8fbca1c-9f4d-42a0-a9bb-cdf60ab978f3"
   }
-}</component>
+}]]></component>
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
