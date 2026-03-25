@@ -5,8 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="d478e9db-375c-47bf-9f83-cb6a2e94c3d3" name="Changes" comment="bird4">
+      <change beforePath="$PROJECT_DIR$/.idea/BirdCLEF.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/BirdCLEF.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/datas/divide_source.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/datas/divide_source.ipynb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/divide_source.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/divide_source.ipynb" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
