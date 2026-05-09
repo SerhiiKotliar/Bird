@@ -34,7 +34,7 @@ CFG = {
     "train_audio_dir": "datas/train_audio",
     "soundscape_dir": "datas/train_soundscapes",
     "label_csv": "datas/train_soundscapes_labels.csv",
-    "model_save_path": "bird_model_tiny_auc.pth",
+    "model_save_path": "bird_model_b2_auc.pth",
     "num_workers": 1,
     "prefetch_factor": 2,
     "use_amp": True,
@@ -43,7 +43,8 @@ CFG = {
     "soundscape_samples_per_epoch": 8000,
     "mixup_alpha": 0.3,
     "label_smoothing": 0.02,
-    "model_name": "convnext_tiny",
+    # ----- модель: "efficientnet_b2" или "convnext_tiny" -----
+    "model_name": "efficientnet_b2",
     "use_3channel": True,
     "grad_low_thresh": 0.1,
     "grad_high_thresh": 1.0,

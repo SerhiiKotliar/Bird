@@ -25,35 +25,30 @@ CFG = {
     "hop_length": 512,
     "f_min": 20,
     "f_max": 16000,
-    "batch_size": 32,  # Уменьшил для стабильности
-    "epochs": 30,  # Уменьшил, чтобы избежать переобучения
-    "lr": 1e-4,  # Увеличил начальную LR
-    "weight_decay": 0.05,  # Усилил регуляризацию
+    "batch_size": 48,
+    "epochs": 40,
+    "lr": 3e-4,
+    "weight_decay": 0.05,
+    "drop_rate": 0.3,
+    "drop_path_rate": 0.1,
     "seed": 42,
     "device": "cuda" if torch.cuda.is_available() else "cpu",
     "train_audio_dir": "datas/train_audio",
     "soundscape_dir": "datas/train_soundscapes",
     "label_csv": "datas/train_soundscapes_labels.csv",
-    "model_save_path": "bird_model_best_auc_b0.pth",
+    "model_save_path": "bird_model_best_auc_b2.pth",
     "num_workers": 2,
     "prefetch_factor": 2,
     "use_amp": True,
-    "clean_samples_per_epoch": 20000,  # Уменьшил
-    "mix_samples_per_epoch": 5000,  # Уменьшил
-    "soundscape_samples_per_epoch": 5000,  # Уменьшил
-    "mixup_alpha": 0.2,
-    "label_smoothing": 0.05,  # Увеличил smoothing
-    # Модель: EfficientNet B0 быстрее и меньше переобучается
-    "model_name": "efficientnet_b0",  # Изменил с convnext_tiny
+    "clean_samples_per_epoch": 20000,
+    "soundscape_samples_per_epoch": 15000,
+    "mixup_alpha": 0.0,
+    "label_smoothing": 0.05,
+    "model_name": "efficientnet_b0",
     "use_3channel": True,
-    # Стратегия обучения
-    "use_auc_loss": False,  # Временно отключил AUC loss (он может мешать)
-    "use_focal_loss": True,  # Включил Focal Loss для борьбы с дисбалансом
-    "focal_gamma": 2.0,
-    "focal_alpha": 0.75,
-    # Learning rate стратегия
-    "lr_schedule": "cosine",  # Cosine annealing
-    "warmup_epochs": 2,
+    "lr_schedule": "cosine",
+    "warmup_epochs": 0,
+    "early_stop_patience": 5,
 }
 
 random.seed(CFG["seed"])
@@ -64,49 +59,11 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True
 
 
-# ================== FOCAL LOSS для борьбы с дисбалансом ==================
-class FocalLoss(nn.Module):
-    def __init__(self, gamma=2.0, alpha=0.75, reduction='mean'):
-        super().__init__()
-        self.gamma = gamma
-        self.alpha = alpha
-        self.reduction = reduction
-
-    def forward(self, logits, targets):
-        probs = torch.sigmoid(logits)
-        ce_loss = nn.functional.binary_cross_entropy_with_logits(logits, targets, reduction='none')
-        p_t = probs * targets + (1 - probs) * (1 - targets)
-        focal_weight = (1 - p_t) ** self.gamma
-
-        if self.alpha >= 0:
-            alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
-            focal_weight = alpha_t * focal_weight
-
-        loss = focal_weight * ce_loss
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        return loss
-
-
 def time_to_seconds(t):
     if pd.isna(t):
         return 0.0
     h, m, s = t.split(":")
     return int(h) * 3600 + int(m) * 60 + float(s)
-
-
-def mixup_data(x, y, alpha=0.2):
-    if alpha > 0:
-        lam = np.random.beta(alpha, alpha)
-    else:
-        lam = 1
-    batch_size = x.size(0)
-    index = torch.randperm(batch_size).to(x.device)
-    mixed_x = lam * x + (1 - lam) * x[index, :]
-    return mixed_x, y, y[index], lam
 
 
 # ================== DATASET ДЛЯ ЗВУКОВЫХ ЛАНДШАФТОВ ==================
@@ -120,7 +77,6 @@ class SoundscapeDataset(Dataset):
             hop_length=CFG["hop_length"], n_mels=CFG["n_mels"],
             f_min=CFG["f_min"], f_max=CFG["f_max"]
         )
-        # Фильтруем только интервалы с реальными метками
         self.data = []
         for _, row in df.iterrows():
             if not row["labels_list"]:
@@ -132,44 +88,34 @@ class SoundscapeDataset(Dataset):
             e = time_to_seconds(row["end"])
             if e - s >= CFG["duration"]:
                 self.data.append((fpath, s, e, row["labels_list"]))
-
         print(f"  Soundscape dataset: {len(self.data)} valid intervals")
 
     def __len__(self):
-        return min(CFG.get("soundscape_samples_per_epoch", 5000), len(self.data) * 10)
+        return min(CFG["soundscape_samples_per_epoch"], len(self.data) * 10)
 
     def __getitem__(self, idx):
         fpath, start, end, labels = random.choice(self.data)
         max_start = max(start, end - CFG["duration"])
         offset = random.uniform(start, max_start)
-
         try:
             y, _ = librosa.load(fpath, sr=CFG["sr"], mono=True, offset=offset, duration=CFG["duration"])
         except:
             y = np.zeros(self.target_len, dtype=np.float32)
-
         if len(y) < self.target_len:
             y = np.pad(y, (0, self.target_len - len(y)))
         else:
             y = y[:self.target_len]
-
-        # Упрощённые аугментации (меньше шума)
         if self.augment and random.random() < 0.3:
             y = y * random.uniform(0.8, 1.2)
-
         waveform = torch.from_numpy(y).float().unsqueeze(0)
         mel = self.mel_transform(waveform)
         mel = torch.log(mel + 1e-6)
-
         if CFG["use_3channel"]:
             mel = mel.repeat(3, 1, 1)
-
-        # Бинарная метка (без label smoothing для валидной AUC)
         target = torch.zeros(len(self.mlb.classes_))
-        valid_labels = [lab for lab in labels if lab in self.mlb.classes_]
-        for lab in valid_labels:
-            target[list(self.mlb.classes_).index(lab)] = 1.0
-
+        for lab in labels:
+            if lab in self.mlb.classes_:
+                target[list(self.mlb.classes_).index(lab)] = 1.0
         return mel, target
 
 
@@ -191,7 +137,6 @@ class CleanDataset(Dataset):
 
     def __getitem__(self, idx):
         path, label, dur = random.choice(self.file_info)
-
         if dur > CFG["duration"]:
             start = random.uniform(0, dur - CFG["duration"])
             try:
@@ -203,26 +148,20 @@ class CleanDataset(Dataset):
                 y, _ = librosa.load(path, sr=CFG["sr"], mono=True)
             except:
                 y = np.zeros(self.target_len, dtype=np.float32)
-
         if len(y) < self.target_len:
             y = np.pad(y, (0, self.target_len - len(y)))
         else:
             y = y[:self.target_len]
-
         if self.augment and random.random() < 0.5:
             y = y * random.uniform(0.7, 1.3)
-
         waveform = torch.from_numpy(y).float().unsqueeze(0)
         mel = self.mel_transform(waveform)
         mel = torch.log(mel + 1e-6)
-
         if CFG["use_3channel"]:
             mel = mel.repeat(3, 1, 1)
-
         target = torch.zeros(len(self.mlb.classes_))
         if label[0] in self.mlb.classes_:
             target[list(self.mlb.classes_).index(label[0])] = 1.0
-
         return mel, target
 
 
@@ -258,28 +197,23 @@ class ValDataset(Dataset):
             y, _ = librosa.load(fpath, sr=CFG["sr"], mono=True, offset=start, duration=CFG["duration"])
         except:
             y = np.zeros(self.target_len, dtype=np.float32)
-
         if len(y) < self.target_len:
             y = np.pad(y, (0, self.target_len - len(y)))
         else:
             y = y[:self.target_len]
-
         waveform = torch.from_numpy(y).float().unsqueeze(0)
         mel = self.mel_transform(waveform)
         mel = torch.log(mel + 1e-6)
-
         if CFG["use_3channel"]:
             mel = mel.repeat(3, 1, 1)
-
         target = torch.zeros(len(self.mlb.classes_))
-        valid_labels = [lab for lab in labels if lab in self.mlb.classes_]
-        for lab in valid_labels:
-            target[list(self.mlb.classes_).index(lab)] = 1.0
-
+        for lab in labels:
+            if lab in self.mlb.classes_:
+                target[list(self.mlb.classes_).index(lab)] = 1.0
         return mel, target
 
 
-# ================== ПОСТРОЕНИЕ ДАТАСЕТОВ ==================
+# ================== ПОСТРОЕНИЕ ДАТАСЕТОВ (с pos_weight) ==================
 def build_datasets():
     print("📂 Indexing files...")
     clean_info = []
@@ -308,12 +242,10 @@ def build_datasets():
     # Разделение soundscape файлов
     df = pd.read_csv(CFG["label_csv"], dtype={"primary_label": str})
     df["labels_list"] = df["primary_label"].apply(lambda x: x.split(";") if pd.notna(x) else [])
-
-    # Оставляем только строки с метками
     df = df[df["labels_list"].apply(len) > 0]
 
     unique_files = df['filename'].unique()
-    train_files, val_files = train_test_split(unique_files, test_size=0.15, random_state=CFG["seed"])
+    train_files, val_files = train_test_split(unique_files, test_size=0.25, random_state=CFG["seed"])
     df_train = df[df['filename'].isin(train_files)]
     df_val = df[df['filename'].isin(val_files)]
 
@@ -330,7 +262,26 @@ def build_datasets():
     print(f"✅ Train: {len(train_ds)} (clean: {len(train_clean)} / soundscape: {len(train_soundscape)})")
     print(f"✅ Val: {len(val_ds)}")
 
-    return train_ds, val_ds, mlb
+    # --- Подсчёт pos_weight по ВСЕЙ тренировочной выборке (clean + soundscape) ---
+    class_counts = np.zeros(len(mlb.classes_))
+    # 1) soundscape интервалы
+    for _, row in df_train.iterrows():
+        for lab in row["labels_list"]:
+            if lab in mlb.classes_:
+                class_counts[list(mlb.classes_).index(lab)] += 1
+    # 2) чистые записи
+    for path, label, dur in clean_info:
+        if label[0] in mlb.classes_:
+            class_counts[list(mlb.classes_).index(label[0])] += 1
+
+    total_samples = len(df_train) + len(clean_info)
+    # Вычисляем pos_weight, но ограничиваем максимальное значение 100
+    pos_weight = (total_samples - class_counts) / (class_counts + 1)  # +1 чтобы избежать деления на 0
+    pos_weight = np.clip(pos_weight, 1.0, 100.0)  # важное ограничение!
+    pos_weight = torch.from_numpy(pos_weight).float().to(CFG["device"])
+
+    print(f"Pos_weight: min={pos_weight.min().item():.2f}, max={pos_weight.max().item():.2f}")
+    return train_ds, val_ds, mlb, pos_weight
 
 
 # ================== МОДЕЛЬ ==================
@@ -344,8 +295,8 @@ def build_model(num_classes):
             pretrained=True,
             in_chans=in_chans,
             num_classes=num_classes,
-            drop_rate=0.3,
-            drop_path_rate=0.1
+            drop_rate=CFG["drop_rate"],
+            drop_path_rate=CFG["drop_path_rate"]
         )
     elif "convnext" in model_name:
         model = timm.create_model(
@@ -357,15 +308,13 @@ def build_model(num_classes):
         )
     else:
         raise ValueError(f"Unknown model: {model_name}")
-
     return model.to(CFG["device"])
 
 
-# ================== Cosine annealing with warmup ==================
-class CosineWarmupScheduler:
-    def __init__(self, optimizer, warmup_epochs, total_epochs, base_lr, min_lr=1e-6):
+# ================== Cosine annealing without warmup ==================
+class CosineAnnealingScheduler:
+    def __init__(self, optimizer, total_epochs, base_lr, min_lr=1e-6):
         self.optimizer = optimizer
-        self.warmup_epochs = warmup_epochs
         self.total_epochs = total_epochs
         self.base_lr = base_lr
         self.min_lr = min_lr
@@ -373,18 +322,10 @@ class CosineWarmupScheduler:
 
     def step(self):
         self.current_epoch += 1
-
-        if self.current_epoch <= self.warmup_epochs:
-            # Linear warmup
-            lr = self.base_lr * (self.current_epoch / self.warmup_epochs)
-        else:
-            # Cosine annealing
-            progress = (self.current_epoch - self.warmup_epochs) / (self.total_epochs - self.warmup_epochs)
-            lr = self.min_lr + (self.base_lr - self.min_lr) * (1 + np.cos(np.pi * progress)) / 2
-
+        progress = (self.current_epoch - 1) / (self.total_epochs - 1)
+        lr = self.min_lr + (self.base_lr - self.min_lr) * (1 + np.cos(np.pi * progress)) / 2
         for param_group in self.optimizer.param_groups:
             param_group["lr"] = lr
-
         return lr
 
 
@@ -397,23 +338,12 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler, epoch):
     for data, target in pbar:
         data = data.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
-
-        # Mixup с низкой вероятностью
-        if random.random() < 0.3:
-            data, y_a, y_b, lam = mixup_data(data, target, CFG["mixup_alpha"])
-            mixed = True
-        else:
-            mixed = False
-
+        if target.sum() == 0:
+            continue
         optimizer.zero_grad(set_to_none=True)
-
         with autocast(enabled=CFG["use_amp"]):
             outputs = model(data)
-            if mixed:
-                loss = lam * criterion(outputs, y_a) + (1 - lam) * criterion(outputs, y_b)
-            else:
-                loss = criterion(outputs, target)
-
+            loss = criterion(outputs, target)
         if CFG["use_amp"]:
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
@@ -424,10 +354,8 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler, epoch):
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-
         running_loss += loss.item()
         pbar.set_postfix(loss=f"{loss.item():.4f}")
-
     return running_loss / len(loader)
 
 
@@ -441,19 +369,17 @@ def validate(model, loader, criterion, device):
     for data, target in tqdm(loader, desc="Val", unit="batch", leave=False):
         data = data.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
-
         with autocast(enabled=CFG["use_amp"]):
             outputs = model(data)
             loss = criterion(outputs, target)
-
         running_loss += loss.item()
         all_preds.append(torch.sigmoid(outputs).cpu())
         all_targets.append(target.cpu())
 
     preds = torch.cat(all_preds).numpy()
     targets = torch.cat(all_targets).numpy()
+    print(f"  Preds mean: {preds.mean():.4f}, Targets mean: {targets.mean():.4f}")
 
-    # Вычисляем macro AUC (только для классов с положительными метками)
     auc_per_class = []
     for i in range(targets.shape[1]):
         if np.sum(targets[:, i]) > 0:
@@ -462,14 +388,10 @@ def validate(model, loader, criterion, device):
                 auc_per_class.append(auc)
             except:
                 pass
-
     macro_auc = np.mean(auc_per_class) if auc_per_class else 0.0
-
-    # Также считаем micro AUC
     all_preds_flat = preds.ravel()
     all_targets_flat = targets.ravel()
     micro_auc = roc_auc_score(all_targets_flat, all_preds_flat)
-
     return running_loss / len(loader), macro_auc, micro_auc
 
 
@@ -477,7 +399,7 @@ def validate(model, loader, criterion, device):
 if __name__ == "__main__":
     print(f"Device: {CFG['device']}, model: {CFG['model_name']}")
 
-    train_ds, val_ds, mlb = build_datasets()
+    train_ds, val_ds, mlb, pos_weight = build_datasets()
     print(f"Number of classes: {len(mlb.classes_)}")
 
     train_loader = DataLoader(
@@ -497,48 +419,42 @@ if __name__ == "__main__":
     )
 
     model = build_model(len(mlb.classes_))
-
-    # Выбор loss функции
-    if CFG["use_focal_loss"]:
-        criterion = FocalLoss(gamma=CFG["focal_gamma"], alpha=CFG["focal_alpha"])
-        print(f"✅ Using Focal Loss (gamma={CFG['focal_gamma']}, alpha={CFG['focal_alpha']})")
-    else:
-        criterion = nn.BCEWithLogitsLoss()
-        print("✅ Using BCE Loss")
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    print("✅ Using BCEWithLogitsLoss with clipped pos_weight (max=100)")
 
     optimizer = optim.AdamW(model.parameters(), lr=CFG["lr"], weight_decay=CFG["weight_decay"])
     scaler = GradScaler(enabled=CFG["use_amp"])
 
     if CFG["lr_schedule"] == "cosine":
-        scheduler = CosineWarmupScheduler(
-            optimizer,
-            warmup_epochs=CFG["warmup_epochs"],
-            total_epochs=CFG["epochs"],
-            base_lr=CFG["lr"],
-            min_lr=1e-6
-        )
+        scheduler = CosineAnnealingScheduler(optimizer, total_epochs=CFG["epochs"], base_lr=CFG["lr"], min_lr=1e-6)
     else:
         scheduler = None
 
     best_auc = 0.0
+    early_stop_counter = 0
 
     for epoch in range(1, CFG["epochs"] + 1):
         train_loss = train_epoch(model, train_loader, optimizer, criterion, CFG["device"], scaler, epoch)
         val_loss, macro_auc, micro_auc = validate(model, val_loader, criterion, CFG["device"])
-
         if scheduler:
             current_lr = scheduler.step()
         else:
             current_lr = CFG["lr"]
 
-        print(f"Epoch {epoch:2d}/{CFG['epochs']} | "
-              f"TrainLoss: {train_loss:.4f} | ValLoss: {val_loss:.4f} | "
+        print(f"Epoch {epoch:2d}/{CFG['epochs']} | TrainLoss: {train_loss:.4f} | ValLoss: {val_loss:.4f} | "
               f"Macro AUC: {macro_auc:.4f} | Micro AUC: {micro_auc:.4f} | LR: {current_lr:.2e}")
 
         if macro_auc > best_auc:
             best_auc = macro_auc
             torch.save(model.state_dict(), CFG["model_save_path"])
             print(f"  >> Best model saved! Macro AUC: {macro_auc:.4f}")
+            early_stop_counter = 0
+        else:
+            early_stop_counter += 1
+
+        if early_stop_counter >= CFG["early_stop_patience"]:
+            print(f"  >> Early stopping triggered after {epoch} epochs.")
+            break
 
         torch.cuda.empty_cache()
 

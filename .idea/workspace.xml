@@ -5,8 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="d478e9db-375c-47bf-9f83-cb6a2e94c3d3" name="Changes" comment="multy_train1">
-      <change afterPath="$PROJECT_DIR$/multy_train_ast.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/create_submission.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/multy_train_AUC_3models.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/multy_train_ansamble.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/multy_train_AUC.py" beforeDir="false" afterPath="$PROJECT_DIR$/multy_train_AUC.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/multy_train_auc_b0.py" beforeDir="false" afterPath="$PROJECT_DIR$/multy_train_auc_b2.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -52,7 +56,12 @@
   "keyToString": {
     "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "Python.multy_train.executor": "Run",
+    "Python.multy_train_AUC.executor": "Run",
+    "Python.multy_train_AUC_3models.executor": "Run",
+    "Python.multy_train_ansamble.executor": "Run",
     "Python.multy_train_ast.executor": "Run",
+    "Python.multy_train_auc_b0.executor": "Run",
+    "Python.multy_train_auc_b2.executor": "Run",
     "Python.multy_train_felguk.executor": "Run",
     "Python.test.executor": "Run",
     "Python.test1.executor": "Run",
